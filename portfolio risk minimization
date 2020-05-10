@@ -1,0 +1,67 @@
+import quandl
+import pandas as pd
+import matplotlib.pyplot as plt
+%matplotlib inline
+import numpy as np
+
+quandl.ApiConfig.api_key = 'your password'
+#efficient frontier for more than 2 assets / optimized portfolio
+ticker=ticker=['AAPL','AXP','BA','CAT','CSCO','CVX','DD','DIS','GE','GS','HD','IBM','INTC','JNJ','JPM','KO','MCD','MMM','MRK','MSFT','NKE','PFE','PG','TRV','UNH','UTX','V','VZ','WMT','XOM'] 
+start_date='2010-01-01'
+end_date='2020-05-01'
+
+price = quandl.get_table('WIKI/PRICES', ticker = ticker, 
+                    qopts = { 'columns': ['ticker', 'date', 'adj_close'] }, 
+                    date = { 'gte': start_date, 'lte': end_date }, 
+                    paginate=True)
+price= price.sort_values(by='date')
+pivoted = price.pivot(index='date', columns='ticker', values='adj_close')
+
+(pivoted/pivoted.iloc[0]*100).plot(figsize=(18,14))
+
+returns=np.log(pivoted/pivoted.shift(1))
+returns.mean()*252
+
+def portfolio_stats(weights):
+    
+    '''
+    We can gather the portfolio performance metrics for a specific set of weights.
+    This function will be important because we'll want to pass it to an optmization
+    function to get the portfolio with the best desired characteristics.
+    
+    Note: Sharpe ratio here uses a risk-free short rate of 0.
+    
+    Paramaters: 
+    -----------
+        weights: array, 
+            asset weights in the portfolio.
+        returns: dataframe
+            a dataframe of returns for each asset in the trial portfolio    
+    
+    Returns: 
+    --------
+        dict of portfolio statistics - mean return, volatility, sharp ratio.
+    '''
+
+    # Convert to array in case list was passed instead.
+    weights = np.array(weights)
+    port_return = np.sum(returns.mean() * weights) * 252
+    port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+    sharpe = port_return/port_vol
+
+    return {'return': port_return, 'volatility': port_vol, 'sharpe': sharpe}
+
+def minimize_sharpe(weights):
+    return -portfolio_stats(weights)['sharpe']
+
+
+num_assets=len(returns.columns)
+constraints=({'type':'eq','fun':lambda x: np.sum(x)-1})
+bounds=tuple((0.0,0.2) for x in range(num_assets))
+initializer = num_assets * [1./num_assets,]
+
+import scipy.optimize as optimize
+optimal_sharpe=optimize.minimize(minimize_sharpe,initializer,method='SLSQP',bounds=bounds,constraints=constraints)
+optimal_sharpe_weights=optimal_sharpe['x'].round(4)
+optimal_sharpe_weights
+list(zip(ticker, list(optimal_sharpe_weights)))
